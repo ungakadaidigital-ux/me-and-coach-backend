@@ -1,0 +1,19 @@
+{
+  "name": "me-and-coach-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "job:generate-payments": "node src/jobs/generatePayments.js",
+    "job:send-reminders": "node src/jobs/sendReminders.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "razorpay": "^2.9.4"
+  }
+}
