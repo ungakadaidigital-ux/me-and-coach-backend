@@ -63,7 +63,7 @@ export function createAuthRouter({ supabaseAdmin, jwtSecret, resolveClaims, reso
    * DEV-ONLY bypass: issues a real session via the exact same
    * createSession/resolveClaims path as verify-otp, just without
    * calling MSG91. Double-gated — must be explicitly enabled AND
-   never runs when NODE_ENV=production, regardless of the flag,
+   * never runs when NODE_ENV=production, regardless of the flag,
    * so a misconfigured prod env can't accidentally expose it.
    * Delete nothing to re-enable OTP later — just unset the flag.
    */
@@ -79,3 +79,27 @@ export function createAuthRouter({ supabaseAdmin, jwtSecret, resolveClaims, reso
       }
     });
   }
+
+  router.post("/refresh", async (req, res) => {
+    const { refresh_token } = req.body;
+    if (!refresh_token) return res.status(400).json({ error: "refresh_token required" });
+    try {
+      const session = await refreshSession({
+        supabaseAdmin,
+        jwtSecret,
+        refreshToken: refresh_token,
+        resolveClaimsByUserId,
+      });
+      res.json(session);
+    } catch (e) {
+      res.status(e.status || 500).json({ error: e.message });
+    }
+  });
+
+  return router;
+}
+
+
+
+
+
