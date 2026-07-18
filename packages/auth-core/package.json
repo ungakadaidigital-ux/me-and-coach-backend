@@ -1,0 +1,14 @@
+{
+  "name": "@me-and/auth-core",
+  "version": "0.1.0",
+  "description": "Reusable MSG91 OTP + Supabase-compatible session issuer, shared across all 'Me &' products.",
+  "type": "module",
+  "main": "index.js",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "peerDependencies": {
+    "express": "^4.19.2"
+  }
+}
