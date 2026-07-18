@@ -10,10 +10,12 @@
     "job:send-reminders": "node src/jobs/sendReminders.js"
   },
   "dependencies": {
+    "@me-and/auth-core": "file:./packages/auth-core",
     "@supabase/supabase-js": "^2.45.0",
     "express": "^4.19.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "jsonwebtoken": "^9.0.2",
     "razorpay": "^2.9.4"
   }
 }
