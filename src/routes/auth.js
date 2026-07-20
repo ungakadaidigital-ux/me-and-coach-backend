@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supabaseAdmin } from "../lib/supabase.js";
+import { supabaseAdmin, supabaseForUser } from "../lib/supabase.js";
 
 const router = Router();
 
@@ -10,10 +10,6 @@ const router = Router();
  * frontend calls THIS endpoint once with the resulting session so
  * we can link the new auth.users row to the pre-created coaches
  * row (owner already invited this phone number).
- *
- * POST /api/auth/link-coach
- * body: { phone: "+91XXXXXXXXXX" }
- * header: Authorization: Bearer <the new session's access token>
  */
 router.post("/link-coach", async (req, res) => {
   const { phone } = req.body;
@@ -21,7 +17,6 @@ router.post("/link-coach", async (req, res) => {
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!token || !phone) return res.status(400).json({ error: "phone and bearer token required" });
 
-  // Confirm the token is a real, freshly-verified Supabase session.
   const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
   if (userErr || !userData?.user) return res.status(401).json({ error: "Invalid session" });
 
@@ -37,5 +32,64 @@ router.post("/link-coach", async (req, res) => {
   });
 });
 
-export default router;
+/**
+ * Dev-only bypass so pilot testing isn't blocked on MSG91 setup.
+ * Creates (or reuses) a real Supabase auth user for this phone,
+ * signs in with a throwaway password to mint a REAL Supabase
+ * session/JWT (so the custom_access_token_hook fires exactly as
+ * it would in production), and links it to the pre-invited coach
+ * row via the same RPC link-coach uses.
+ *
+ * Flip DEV_LOGIN_ENABLED to false (or remove it) in Railway before
+ * real pilot launch — 404s in any other configuration.
+ */
+router.post("/dev-login", async (req, res) => {
+  if (process.env.NODE_ENV !== "production" || process.env.DEV_LOGIN_ENABLED !== "true") {
+    return res.status(404).end();
+  }
+  const { phone } = req.body;
+  if (!phone) return res.status(400).json({ error: "phone required" });
 
+  const devPassword = process.env.DEV_LOGIN_PASSWORD || "dev-login-only-not-for-prod";
+
+  try {
+    let userId;
+    const { data: existing } = await supabaseAdmin.auth.admin.listUsers();
+    const found = existing?.users?.find((u) => u.phone === phone.replace("+", ""));
+
+    if (found) {
+      userId = found.id;
+      await supabaseAdmin.auth.admin.updateUserById(userId, { password: devPassword });
+    } else {
+      const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+        phone,
+        phone_confirm: true,
+        password: devPassword,
+      });
+      if (createErr) throw createErr;
+      userId = created.user.id;
+    }
+
+    const { error: linkErr } = await supabaseAdmin.rpc("link_coach_auth_user", {
+      p_phone: phone,
+      p_auth_user_id: userId,
+    });
+    if (linkErr) throw linkErr;
+
+    const anonClient = supabaseForUser("");
+    const { data: session, error: signInErr } = await anonClient.auth.signInWithPassword({
+      phone,
+      password: devPassword,
+    });
+    if (signInErr) throw signInErr;
+
+    res.json({
+      token: session.session.access_token,
+      refresh_token: session.session.refresh_token,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+export default router;
