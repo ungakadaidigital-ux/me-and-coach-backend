@@ -86,8 +86,8 @@ router.post("/dev-login", async (req, res) => {
     res.json({
       token: session.session.access_token,
       refresh_token: session.session.refresh_token,
-    });
-  } catch (err) {
+    }) catch (err) {
+    console.error("dev-login error:", err);
     res.status(500).json({ error: err.message });
   }
 });
