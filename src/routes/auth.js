@@ -1,9 +1,11 @@
 import { Router } from "express";
+import { createClient } from "@supabase/supabase-js";
 import { supabaseAdmin, supabaseForUser } from "../lib/supabase.js";
+
+const supabaseAnon = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
 const router = Router();
 
-/**
  * Flow: frontend calls supabase.auth.signInWithOtp({ phone }) then
  * supabase.auth.verifyOtp({...}) itself — Supabase handles the OTP
  * round-trip directly with the client SDK. Once verified, the
@@ -75,10 +77,8 @@ router.post("/dev-login", async (req, res) => {
       p_auth_user_id: userId,
     });
     if (linkErr) throw linkErr;
-
-    const anonClient = supabaseForUser("");
-    const { data: session, error: signInErr } = await anonClient.auth.signInWithPassword({
-      phone,
+    const { data: session, error: signInErr } = await supabaseAnon.auth.signInWithPassword({
+    phone,
       password: devPassword,
     });
     if (signInErr) throw signInErr;
