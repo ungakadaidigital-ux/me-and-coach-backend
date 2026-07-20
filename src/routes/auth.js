@@ -5,7 +5,7 @@ import { supabaseAdmin, supabaseForUser } from "../lib/supabase.js";
 const supabaseAnon = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
 const router = Router();
-
+/**
  * Flow: frontend calls supabase.auth.signInWithOtp({ phone }) then
  * supabase.auth.verifyOtp({...}) itself — Supabase handles the OTP
  * round-trip directly with the client SDK. Once verified, the
