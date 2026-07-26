@@ -1,50 +1,71 @@
-import { Router } from "express";
-import { requireAuth } from "../middleware/requireAuth.js";
+const express = require("express");
+const { supabaseAdmin } = require("../config/supabase");
+const router = express.Router();
 
-const router = Router();
-router.use(requireAuth);
+// GET /api/students?vertical=&batch_id=&q=
+router.get("/", async (req, res, next) => {
+  try {
+    let query = supabaseAdmin.from("students").select("*").eq("academy_id", req.academyId).order("name");
+    if (req.query.vertical) query = query.eq("vertical", req.query.vertical);
+    if (req.query.batch_id) query = query.eq("batch_id", req.query.batch_id);
+    if (req.query.q) query = query.ilike("name", `%${req.query.q}%`);
 
-// GET /api/students?vertical=&batch_id=
-router.get("/", async (req, res) => {
-  let query = req.supabase.from("students").select("*").eq("academy_id", req.academyId);
-  if (req.query.vertical) query = query.eq("vertical", req.query.vertical);
-  if (req.query.batch_id) query = query.eq("batch_id", req.query.batch_id);
-  const { data, error } = await query;
-  if (error) return res.status(400).json({ error: error.message });
-  res.json(data);
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ students: data });
+  } catch (e) {
+    next(e);
+  }
 });
 
-// POST /api/students — RLS blocks this for role=coach automatically
-router.post("/", async (req, res) => {
-  const { data, error } = await req.supabase
-    .from("students")
-    .insert({ ...req.body, academy_id: req.academyId })
-    .select()
-    .single();
-  if (error) return res.status(400).json({ error: error.message });
-  res.status(201).json(data);
+router.get("/:id", async (req, res, next) => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("students").select("*").eq("academy_id", req.academyId).eq("id", req.params.id).single();
+    if (error) throw error;
+    res.json({ student: data });
+  } catch (e) {
+    next(e);
+  }
 });
 
-router.get("/:id", async (req, res) => {
-  const { data, error } = await req.supabase
-    .from("students")
-    .select("*, fee_plans(*)")
-    .eq("id", req.params.id)
-    .single();
-  if (error) return res.status(404).json({ error: error.message });
-  res.json(data);
+router.post("/", async (req, res, next) => {
+  try {
+    const { name, vertical, batch_id, parent_phone, parent_name, join_date, custom_fields } = req.body;
+    if (!name || !vertical || !parent_phone) {
+      return res.status(400).json({ error: "name, vertical, parent_phone தேவை" });
+    }
+    const { data, error } = await supabaseAdmin
+      .from("students")
+      .insert({ academy_id: req.academyId, name, vertical, batch_id, parent_phone, parent_name, join_date, custom_fields: custom_fields || {} })
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json({ student: data });
+  } catch (e) {
+    next(e);
+  }
 });
 
-router.patch("/:id", async (req, res) => {
-  const { data, error } = await req.supabase
-    .from("students")
-    .update(req.body)
-    .eq("id", req.params.id)
-    .select()
-    .single();
-  if (error) return res.status(400).json({ error: error.message });
-  res.json(data);
+// PATCH — every update marks the record as edited (Principles #6).
+router.patch("/:id", async (req, res, next) => {
+  try {
+    const updates = { ...req.body, is_edited: true, edited_at: new Date().toISOString(), edited_by: req.coach.id };
+    delete updates.id;
+    delete updates.academy_id;
+
+    const { data, error } = await supabaseAdmin
+      .from("students")
+      .update(updates)
+      .eq("academy_id", req.academyId)
+      .eq("id", req.params.id)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ student: data });
+  } catch (e) {
+    next(e);
+  }
 });
 
-export default router;
-
+module.exports = router;
