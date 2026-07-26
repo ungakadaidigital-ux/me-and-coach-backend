@@ -1,21 +1,20 @@
 {
-  "name": "me-and-coach-api",
-  "version": "0.1.0",
+  "name": "meandcoach-backend",
+  "version": "1.0.0",
   "private": true,
-  "type": "module",
+  "description": "Me & Coach (Academy OS) — API server",
+  "type": "commonjs",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
-    "job:generate-payments": "node src/jobs/generatePayments.js",
-    "job:send-reminders": "node src/jobs/sendReminders.js"
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
   },
   "dependencies": {
-    "@me-and/auth-core": "file:./packages/auth-core",
     "@supabase/supabase-js": "^2.45.0",
-    "express": "^4.19.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "jsonwebtoken": "^9.0.2",
-    "razorpay": "^2.9.4"
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "morgan": "^1.10.0"
   }
 }
