@@ -1,29 +1,35 @@
-import { Router } from "express";
-import { requireAuth } from "../middleware/requireAuth.js";
+const express = require("express");
+const { supabaseAdmin } = require("../config/supabase");
+const router = express.Router();
 
-const router = Router();
-router.use(requireAuth);
-
-// GET /api/batches?vertical=  — RLS returns all for owner/assistant,
-// but a coach only sees batches assigned to them via coach_id.
-router.get("/", async (req, res) => {
-  let query = req.supabase.from("batches").select("*").eq("academy_id", req.academyId);
-  if (req.query.vertical) query = query.eq("vertical", req.query.vertical);
-  const { data, error } = await query;
-  if (error) return res.status(400).json({ error: error.message });
-  res.json(data);
+router.get("/", async (req, res, next) => {
+  try {
+    let query = supabaseAdmin.from("batches").select("*").eq("academy_id", req.academyId).order("start_time");
+    if (req.query.vertical) query = query.eq("vertical", req.query.vertical);
+    const { data, error } = await query;
+    if (error) throw error;
+    res.json({ batches: data });
+  } catch (e) {
+    next(e);
+  }
 });
 
-// POST /api/batches — owner-only, enforced by RLS (batches_write_owner)
-router.post("/", async (req, res) => {
-  const { data, error } = await req.supabase
-    .from("batches")
-    .insert({ ...req.body, academy_id: req.academyId })
-    .select()
-    .single();
-  if (error) return res.status(400).json({ error: error.message });
-  res.status(201).json(data);
+router.post("/", async (req, res, next) => {
+  try {
+    const { vertical, name, coach_id, location, days_of_week, start_time, end_time } = req.body;
+    if (!vertical || !name || !days_of_week || !start_time || !end_time) {
+      return res.status(400).json({ error: "vertical, name, days_of_week, start_time, end_time தேவை" });
+    }
+    const { data, error } = await supabaseAdmin
+      .from("batches")
+      .insert({ academy_id: req.academyId, vertical, name, coach_id, location, days_of_week, start_time, end_time })
+      .select()
+      .single();
+    if (error) throw error;
+    res.status(201).json({ batch: data });
+  } catch (e) {
+    next(e);
+  }
 });
 
-export default router;
-
+module.exports = router;
