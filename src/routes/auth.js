@@ -1,95 +1,93 @@
-import { Router } from "express";
-import { createClient } from "@supabase/supabase-js";
-import { supabaseAdmin, supabaseForUser } from "../lib/supabase.js";
+const express = require("express");
+const { supabaseAdmin, phoneToPseudoEmail } = require("../config/supabase");
+const router = express.Router();
 
-const supabaseAnon = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-
-const router = Router();
-/**
- * Flow: frontend calls supabase.auth.signInWithOtp({ phone }) then
- * supabase.auth.verifyOtp({...}) itself — Supabase handles the OTP
- * round-trip directly with the client SDK. Once verified, the
- * frontend calls THIS endpoint once with the resulting session so
- * we can link the new auth.users row to the pre-created coaches
- * row (owner already invited this phone number).
- */
-router.post("/link-coach", async (req, res) => {
-  const { phone } = req.body;
-  const authHeader = req.headers.authorization || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!token || !phone) return res.status(400).json({ error: "phone and bearer token required" });
-
-  const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
-  if (userErr || !userData?.user) return res.status(401).json({ error: "Invalid session" });
-
-  const { error } = await supabaseAdmin.rpc("link_coach_auth_user", {
-    p_phone: phone,
-    p_auth_user_id: userData.user.id,
-  });
-  if (error) return res.status(500).json({ error: error.message });
-
-  res.json({
-    linked: true,
-    note: "Ask the client to refresh its session now — the JWT won't carry academy_id/role until the next token refresh.",
-  });
-});
-
-/**
- * Dev-only bypass so pilot testing isn't blocked on MSG91 setup.
- * Creates (or reuses) a real Supabase auth user for this phone,
- * signs in with a throwaway password to mint a REAL Supabase
- * session/JWT (so the custom_access_token_hook fires exactly as
- * it would in production), and links it to the pre-invited coach
- * row via the same RPC link-coach uses.
- *
- * Flip DEV_LOGIN_ENABLED to false (or remove it) in Railway before
- * real pilot launch — 404s in any other configuration.
- */
-router.post("/dev-login", async (req, res) => {
-  if (process.env.NODE_ENV !== "production" || process.env.DEV_LOGIN_ENABLED !== "true") {
-    return res.status(404).end();
+function requireAdminSecret(req, res, next) {
+  if (req.headers["x-admin-secret"] !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ error: "Admin secret தேவை" });
   }
-  const { phone } = req.body;
-  if (!phone) return res.status(400).json({ error: "phone required" });
+  next();
+}
 
-  const devPassword = process.env.DEV_LOGIN_PASSWORD || "dev-login-only-not-for-prod";
-
+// POST /api/auth/login  { phone, password }
+// This is the ONLY entry point the app's Login screen calls.
+// No email, no OTP, no magic link (Design & Product Principles #1).
+router.post("/login", async (req, res, next) => {
   try {
-    let userId;
-    const { data: existing } = await supabaseAdmin.auth.admin.listUsers();
-    const found = existing?.users?.find((u) => u.phone === phone.replace("+", ""));
+    const { phone, password } = req.body;
+    if (!phone || !password) return res.status(400).json({ error: "Phone number மற்றும் password கொடுங்கள்" });
 
-    if (found) {
-      userId = found.id;
-      await supabaseAdmin.auth.admin.updateUserById(userId, { password: devPassword });
-    } else {
-      const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-        phone,
-        phone_confirm: true,
-        password: devPassword,
-      });
-      if (createErr) throw createErr;
-      userId = created.user.id;
-    }
+    const email = phoneToPseudoEmail(phone);
+    const { data, error } = await supabaseAdmin.auth.signInWithPassword({ email, password });
+    if (error) return res.status(401).json({ error: "Phone number அல்லது password தவறு" });
 
-    const { error: linkErr } = await supabaseAdmin.rpc("link_coach_auth_user", {
-      p_phone: phone,
-      p_auth_user_id: userId,
-    });
-    if (linkErr) throw linkErr;
-    const { data: session, error: signInErr } = await supabaseAnon.auth.signInWithPassword({
-    phone,
-      password: devPassword,
-    });
-    if (signInErr) throw signInErr;
-
-    res.json({
-      token: session.session.access_token,
-      refresh_token: session.session.refresh_token,
-    }) catch (err) {
-    console.error("dev-login error:", err);
-    res.status(500).json({ error: err.message });
+    res.json({ session: data.session, user: data.user });
+  } catch (e) {
+    next(e);
   }
 });
 
-export default router;
+// --------------------------------------------------------------------
+// MANUAL ACCOUNT CREATION PHASE (Design & Product Principles #1)
+// There is no public "Sign Up" flow wired into the app yet. Until the
+// business is at a scale that needs self-registration, support/admin
+// creates each coach's account directly — either from the Supabase
+// dashboard, or by calling this admin-secret-protected endpoint, which
+// does the same thing (create auth user + coaches row) in one step.
+// --------------------------------------------------------------------
+router.post("/admin/create-account", requireAdminSecret, async (req, res, next) => {
+  try {
+    const { phone, password, name, academy_id, role, verticals } = req.body;
+    if (!phone || !password || !name || !academy_id) {
+      return res.status(400).json({ error: "phone, password, name, academy_id தேவை" });
+    }
+    const email = phoneToPseudoEmail(phone);
+
+    const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
+    if (authErr) return res.status(400).json({ error: authErr.message });
+
+    const { data: coach, error: coachErr } = await supabaseAdmin
+      .from("coaches")
+      .insert({
+        auth_user_id: authUser.user.id,
+        academy_id,
+        name,
+        phone,
+        role: role || "coach",
+        verticals: verticals || [],
+      })
+      .select()
+      .single();
+
+    if (coachErr) return res.status(400).json({ error: coachErr.message });
+    res.status(201).json({ coach });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Password reset — no email link. A support agent authenticates with the
+// admin secret and sets a new password directly, exactly like resetting
+// it from the Supabase dashboard (Design & Product Principles #1).
+router.post("/admin/reset-password", requireAdminSecret, async (req, res, next) => {
+  try {
+    const { phone, new_password } = req.body;
+    if (!phone || !new_password) return res.status(400).json({ error: "phone, new_password தேவை" });
+
+    const { data: coach } = await supabaseAdmin.from("coaches").select("auth_user_id").eq("phone", phone).single();
+    if (!coach) return res.status(404).json({ error: "இந்த phone number-க்கு கணக்கு இல்லை" });
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(coach.auth_user_id, { password: new_password });
+    if (error) return res.status(400).json({ error: error.message });
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+module.exports = router;
