@@ -1,28 +1,26 @@
-# Me & Coach API
-
-## Setup
-1. `npm install`
-2. Copy `.env.example` → `.env`, fill in Supabase/Razorpay/Wati keys
-3. Run migrations against your Supabase project in order:
-   `migrations/001_init_schema.sql` → `002_rls_policies.sql` → `003_auth_claims.sql`
-4. **Manual step (can't be done via SQL):** Supabase Dashboard →
-   Authentication → Hooks → Custom Access Token → select
-   `public.custom_access_token_hook`. Without this, JWTs won't carry
-   `academy_id`/`role`/`coach_id` and every RLS-protected route will
-   403.
-5. `npm run dev`
-
-## Deploy (Railway)
-- Deploy this folder as a Railway service; set the same env vars there.
-- Add two Railway Cron jobs (Settings → Cron):
-  - `npm run job:generate-payments` — daily, early morning
-  - `npm run job:send-reminders` — daily, after the above
-
-## Not yet built (flagged, not forgotten)
-- Same-day-only attendance edit window — needs enforcing in the
-  attendance route (currently only handles new bulk syncs, not edits
-  to a past day)
-- Wati template name mapping in `src/lib/wati.js` — placeholders,
-  swap in your actual approved template names once created in Wati
-- Coach OTP flow on the frontend (Supabase `signInWithOtp` +
-  `verifyOtp`) — this backend only handles the linking step after
+Me & Coach — Backend
+Express API on Node.js + Supabase (Postgres). Built to the "Me &" family Design & Product Principles — see comments in migrations/001_init.sql, src/routes/auth.js, and src/middleware/auth.js for where each principle is implemented.
+Setup
+Create a Supabase project.
+Run migrations/001_init.sql in the Supabase SQL editor (or via supabase db push).
+Copy .env.example to .env and fill in real values.
+npm install
+npm run dev
+Deploy order (important)
+Per the dev process notes: SQL migration → Backend → Frontend, in that order. Deploying the backend before the migration, or the frontend before the backend, will surface confusing dependency errors.
+Creating the first coach account (manual onboarding phase)
+There is no public sign-up screen yet. Create the first academy + coach with:
+curl -X POST $API_URL/api/auth/admin/create-account \
+  -H "x-admin-secret: $ADMIN_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "phone": "9840000000",
+    "password": "TempPass123",
+    "name": "Coach Selvan",
+    "academy_id": "<uuid from academies table>",
+    "role": "owner"
+  }'
+Keep an Excel sheet of phone → password for support to hand off and reset, exactly as described in the Design & Product Principles doc.
+Railway deployment notes
+Set trust proxy is already handled in server.js — required for express-rate-limit to read X-Forwarded-For correctly behind Railway's proxy, especially once a custom domain is added to FRONTEND_URL/CORS.
+Environment variables to set on Railway: everything in .env.example.
